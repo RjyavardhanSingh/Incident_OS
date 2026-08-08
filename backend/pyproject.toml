@@ -1,0 +1,24 @@
+[project]
+name = "incident-os-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.19.1",
+    "confluent-kafka>=2.5",
+    "fastapi>=0.141.1",
+    "opentelemetry-proto>=1.44.0",
+    "psycopg[binary]>=3.3.4",
+    "pydantic-settings>=2.15.0",
+    "redis>=5",
+    "sqlalchemy>=2.0.51",
+    "uvicorn[standard]>=0.52.1",
+]
+
+[dependency-groups]
+dev = [
+    "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+    "opentelemetry-sdk>=1.44.0",
+    "opentelemetry-semantic-conventions>=0.65b0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
