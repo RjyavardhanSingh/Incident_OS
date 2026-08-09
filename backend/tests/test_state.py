@@ -33,6 +33,8 @@ def test_investigation_transitions():
     assert not investigation_transition("READY", "COLLECTING")
     assert investigation_transition("ANALYZING", "VERIFYING")
     assert not investigation_transition("ANALYZING", "COLLECTING")
+    assert investigation_transition("VERIFYING", "READY")
+    assert not investigation_transition("READY", "ANALYZING")
 
 
 def test_claim_status_terminal():
