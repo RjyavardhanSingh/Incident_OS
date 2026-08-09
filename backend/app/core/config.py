@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     )
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_group_id: str = "investigation-workers"
+    kafka_security_protocol: str = "PLAINTEXT"
+    kafka_sasl_mechanism: str = "PLAIN"
+    kafka_sasl_username: str = ""
+    kafka_sasl_password: str = ""
     demo_database_url: str = (
         "postgresql+psycopg://incident_os:incident_os_dev@localhost:5433/incident_os_dev"
     )

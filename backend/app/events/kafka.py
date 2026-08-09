@@ -12,6 +12,27 @@ from app.events.base import EventEnvelope
 logger = logging.getLogger(__name__)
 
 
+def client_config(extra: dict | None = None) -> dict:
+    """Base confluent-kafka client config, adding SASL auth when configured.
+
+    Local dev uses PLAINTEXT (the default); Zerops-managed Kafka uses SASL PLAIN
+    with generated credentials, wired in via env vars.
+    """
+    cfg: dict = {"bootstrap.servers": settings.kafka_bootstrap_servers}
+    if settings.kafka_security_protocol.upper() != "PLAINTEXT":
+        cfg.update(
+            {
+                "security.protocol": settings.kafka_security_protocol,
+                "sasl.mechanism": settings.kafka_sasl_mechanism or "PLAIN",
+                "sasl.username": settings.kafka_sasl_username,
+                "sasl.password": settings.kafka_sasl_password,
+            }
+        )
+    if extra:
+        cfg.update(extra)
+    return cfg
+
+
 def ensure_topics(
     topics: list[str],
     bootstrap_servers: str | None = None,
@@ -24,7 +45,7 @@ def ensure_topics(
     workflow. Runs at worker startup so every subscribed topic pre-exists.
     """
     bootstrap = bootstrap_servers or settings.kafka_bootstrap_servers
-    admin = AdminClient({"bootstrap.servers": bootstrap})
+    admin = AdminClient(client_config({"bootstrap.servers": bootstrap}))
     metadata = admin.list_topics(timeout=timeout)
     missing = [topic for topic in topics if topic not in metadata.topics]
     if not missing:
@@ -45,7 +66,10 @@ class KafkaEventPublisher:
     """
 
     def __init__(self, bootstrap_servers: str | None = None) -> None:
-        self._producer = Producer({"bootstrap.servers": bootstrap_servers or settings.kafka_bootstrap_servers})
+        cfg = client_config()
+        if bootstrap_servers:
+            cfg["bootstrap.servers"] = bootstrap_servers
+        self._producer = Producer(cfg)
 
     def publish(self, envelope: EventEnvelope) -> None:
         topic = envelope.event_type
@@ -87,14 +111,16 @@ class KafkaEventConsumer:
         bootstrap_servers: str | None = None,
     ) -> None:
         self._topics = topics
-        self._consumer = Consumer(
+        cfg = client_config(
             {
-                "bootstrap.servers": bootstrap_servers or settings.kafka_bootstrap_servers,
                 "group.id": group_id or settings.kafka_group_id,
                 "auto.offset.reset": "earliest",
                 "enable.auto.commit": False,
             }
         )
+        if bootstrap_servers:
+            cfg["bootstrap.servers"] = bootstrap_servers
+        self._consumer = Consumer(cfg)
         self._loop = None
         self._on_message: Callable | None = None
         self._running = False
