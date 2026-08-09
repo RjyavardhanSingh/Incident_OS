@@ -3,7 +3,7 @@ zerops:
     build:
       base: ubuntu/python@3.12
       buildCommands:
-        - python -m pip install --target=./vendor ./backend
+        - python -m pip install --upgrade --no-cache-dir --target=./vendor ./backend
       deployFiles:
         - ./backend
         - ./vendor
@@ -29,7 +29,7 @@ zerops:
     build:
       base: ubuntu/python@3.12
       buildCommands:
-        - python -m pip install --target=./vendor ./backend
+        - python -m pip install --upgrade --no-cache-dir --target=./vendor ./backend
       deployFiles:
         - ./backend
         - ./vendor
