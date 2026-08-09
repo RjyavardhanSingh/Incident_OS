@@ -11,9 +11,11 @@ from app.models.correlation import CorrelationRun, RootCauseCandidate
 from app.models.evidence import Evidence
 from app.models.incident import Incident
 from app.models.investigation import Investigation, InvestigationStep
+from app.models.verification import VerificationResult, VerificationRun
 from app.schemas.correlation import CorrelationRunOut, RootCauseCandidateOut
 from app.schemas.evidence import EvidenceOut
 from app.schemas.investigation import InvestigationOut, InvestigationStepOut
+from app.schemas.verification import VerificationResultOut, VerificationRunOut
 
 router = APIRouter(prefix="/api/v1", tags=["investigations"])
 
@@ -114,5 +116,31 @@ async def list_correlation_runs(
         select(CorrelationRun)
         .where(CorrelationRun.investigation_id == investigation_id)
         .order_by(CorrelationRun.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/investigations/{investigation_id}/verification-results", response_model=list[VerificationResultOut])
+async def list_verification_results(
+    investigation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(VerificationResult)
+        .where(VerificationResult.investigation_id == investigation_id)
+        .order_by(VerificationResult.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/investigations/{investigation_id}/verification-runs", response_model=list[VerificationRunOut])
+async def list_verification_runs(
+    investigation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(VerificationRun)
+        .where(VerificationRun.investigation_id == investigation_id)
+        .order_by(VerificationRun.created_at.desc())
     )
     return list(result.scalars().all())

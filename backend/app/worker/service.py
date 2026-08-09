@@ -13,16 +13,23 @@ from app.models.correlation import (
 )
 from app.models.evidence import Evidence
 from app.models.investigation import (
+    INVESTIGATION_STATUS_READY,
     INVESTIGATION_STATUS_VERIFYING,
     InvestigationStep,
     STEP_TOPIC_MAP,
 )
+from app.models.verification import (
+    VERIFICATION_RUN_STATUS_COMPLETED,
+    VerificationRun,
+)
 from app.sources.contract import CollectionContext, EvidenceRecord
 from app.sources.registry import close_source, create_source
+from app.verification import engine as verification_engine
 
 logger = logging.getLogger(__name__)
 
 CORRELATION_EVENT_TYPE = "correlation.requested"
+VERIFICATION_EVENT_TYPE = "verification.requested"
 
 
 def _parse_iso(value: str) -> datetime:
@@ -210,6 +217,63 @@ async def handle_correlation_requested(session: AsyncSession, publisher, envelop
             },
         )
     )
+    publisher.publish(
+        EventEnvelope(
+            event_type=VERIFICATION_EVENT_TYPE,
+            incident_id=envelope.incident_id,
+            investigation_id=investigation_id,
+            producer="correlation-worker",
+            payload={"candidate_count": len(candidates)},
+        )
+    )
+    publisher.flush()
+
+
+async def handle_verification_requested(session: AsyncSession, publisher, envelope: EventEnvelope) -> None:
+    """Verify every correlation candidate once per investigation.
+
+    At-least-once delivery is guarded: a COMPLETED run means verification already
+    ran, so redeliveries are skipped (no duplicate results).
+    """
+    investigation_id = envelope.investigation_id
+    run = (
+        await session.execute(
+            select(VerificationRun)
+            .where(
+                VerificationRun.investigation_id == investigation_id,
+                VerificationRun.status == VERIFICATION_RUN_STATUS_COMPLETED,
+            )
+            .limit(1)
+        )
+    ).scalars().first()
+    if run is not None:
+        logger.info("verification already completed for %s; skip duplicate", investigation_id)
+        return
+
+    try:
+        run, results = await verification_engine.run_for_investigation(
+            session, investigation_id
+        )
+        await investigation_service.transition_investigation(
+            session, investigation_id, INVESTIGATION_STATUS_READY
+        )
+    except Exception as exc:
+        logger.exception("verification failed for %s: %s", investigation_id, exc)
+        raise
+
+    publisher.publish(
+        EventEnvelope(
+            event_type="verification.completed",
+            incident_id=envelope.incident_id,
+            investigation_id=investigation_id,
+            producer="verification-worker",
+            payload={
+                "verified": run.verified_count,
+                "contradicted": run.contradicted_count,
+                "unverified": run.unverified_count,
+            },
+        )
+    )
     publisher.flush()
 
 
@@ -219,5 +283,7 @@ async def handle_envelope(session_factory, publisher, envelope: EventEnvelope) -
             await handle_evidence_requested(session, publisher, envelope)
         elif envelope.event_type == CORRELATION_EVENT_TYPE:
             await handle_correlation_requested(session, publisher, envelope)
+        elif envelope.event_type == VERIFICATION_EVENT_TYPE:
+            await handle_verification_requested(session, publisher, envelope)
         else:
             logger.info("ignoring unhandled event_type=%s", envelope.event_type)

@@ -2,9 +2,13 @@ import asyncio
 import logging
 
 from app.core.db import async_session_factory
-from app.events.kafka import KafkaEventConsumer, KafkaEventPublisher
+from app.events.kafka import KafkaEventConsumer, KafkaEventPublisher, ensure_topics
 from app.models.investigation import STEP_TOPIC_MAP
-from app.worker.service import CORRELATION_EVENT_TYPE, handle_envelope
+from app.worker.service import (
+    CORRELATION_EVENT_TYPE,
+    VERIFICATION_EVENT_TYPE,
+    handle_envelope,
+)
 
 
 def main() -> None:
@@ -15,7 +19,8 @@ def main() -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     publisher = KafkaEventPublisher()
-    topics = list(STEP_TOPIC_MAP.values()) + [CORRELATION_EVENT_TYPE]
+    topics = list(STEP_TOPIC_MAP.values()) + [CORRELATION_EVENT_TYPE, VERIFICATION_EVENT_TYPE]
+    ensure_topics(topics)
     consumer = KafkaEventConsumer(topics=topics)
 
     async def on_message(envelope):

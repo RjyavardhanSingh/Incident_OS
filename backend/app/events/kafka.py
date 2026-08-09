@@ -4,11 +4,37 @@ import threading
 from collections.abc import Callable
 
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
+from confluent_kafka.admin import AdminClient, NewTopic
 
 from app.core.config import settings
 from app.events.base import EventEnvelope
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_topics(
+    topics: list[str],
+    bootstrap_servers: str | None = None,
+    timeout: float = 10.0,
+) -> None:
+    """Create missing topics so consumers never subscribe to an absent topic.
+
+    Without this, a consumer subscribed before a topic is auto-created only
+    rebalances after the metadata cache expires (default ~5 min), stalling the
+    workflow. Runs at worker startup so every subscribed topic pre-exists.
+    """
+    bootstrap = bootstrap_servers or settings.kafka_bootstrap_servers
+    admin = AdminClient({"bootstrap.servers": bootstrap})
+    metadata = admin.list_topics(timeout=timeout)
+    missing = [topic for topic in topics if topic not in metadata.topics]
+    if not missing:
+        return
+    futures = admin.create_topics(
+        [NewTopic(topic, num_partitions=1, replication_factor=1) for topic in missing]
+    )
+    for topic, future in futures.items():
+        future.result(timeout)
+    logger.info("ensured kafka topics exist: %s", missing)
 
 
 class KafkaEventPublisher:
