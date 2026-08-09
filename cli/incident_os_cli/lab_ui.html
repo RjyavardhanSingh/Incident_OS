@@ -63,6 +63,27 @@
            max-width: 360px; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
   #incident-detail { margin-top: 12px; }
   .row-hover:hover { background: var(--panel2); cursor: pointer; }
+
+  #timeline { position: relative; margin-top: 12px; padding-left: 24px; }
+  #timeline::before { content: ''; position: absolute; left: 7px; top: 4px; bottom: 4px;
+                      width: 2px; background: var(--border); }
+  .tl-node { position: relative; margin: 0 0 14px; opacity: .25; transition: opacity .3s; }
+  .tl-node.lit { opacity: 1; }
+  .tl-node::before { content: ''; position: absolute; left: -24px; top: 4px; width: 12px;
+                     height: 12px; border-radius: 50%; background: var(--panel);
+                     border: 2px solid var(--border); }
+  .tl-node.lit::before { background: var(--accent); border-color: var(--accent); }
+  .tl-node.done::before { background: var(--ok); border-color: var(--ok); }
+  .tl-time { color: var(--muted); font-size: 11px; }
+  .tl-title { font-weight: bold; margin: 2px 0 4px; }
+  .tl-body { color: var(--text); }
+  #replay-bar { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  #replay-bar button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+                       background: var(--panel2); color: var(--text); cursor: pointer; font-family: inherit; }
+  #replay-bar button:hover { border-color: var(--accent); }
+  #replay-speed { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+                  border-radius: 6px; padding: 4px 6px; font-family: inherit; }
+  .pill.sev { font-size: 11px; padding: 2px 8px; }
 </style>
 </head>
 <body>
@@ -94,12 +115,16 @@
 
   <div>
     <div class="panel">
-      <h2>Incidents</h2>
+      <h2>Current incidents</h2>
       <div id="incidents"><span class="muted">loading…</span></div>
     </div>
+    <div class="panel" style="margin-top:16px">
+      <h2>History <span class="muted" style="text-transform:none;letter-spacing:0">— resolved, with replay</span></h2>
+      <div id="history"><span class="muted">no resolved incidents</span></div>
+    </div>
     <div class="panel" style="margin-top:16px" id="detail-wrap">
-      <h2>Investigation</h2>
-      <div id="incident-detail"><span class="muted">investigate an incident to see the pipeline here</span></div>
+      <h2>Investigation / Replay</h2>
+      <div id="incident-detail"><span class="muted">investigate an incident, or replay a resolved one</span></div>
     </div>
   </div>
 </main>
@@ -137,21 +162,27 @@ async function refreshHealth() {
 
 async function loadIncidents() {
   try {
-    const list = await j('GET', '/api/v1/incidents?limit=50');
-    const open = list.filter(i => i.status === 'OPEN').length;
-    $('open-pill').textContent = open + ' open';
-    const rows = list.map(i => `
+    const list = await j('GET', '/api/v1/incidents?limit=100');
+    const open = list.filter(i => i.status === 'OPEN');
+    const resolved = list.filter(i => i.status === 'RESOLVED');
+    $('open-pill').textContent = open.length + ' open';
+    const row = i => `
       <tr class="row-hover" onclick="showIncident('${i.id}')">
         <td class="st-${i.status}">${i.status}</td>
         <td class="sev-${i.severity}">${i.severity}</td>
         <td>${i.service}</td>
         <td>${i.detection_rule_name || '—'}</td>
         <td>${ts(i.detected_at)}</td>
-        <td><button class="btn small" onclick="event.stopPropagation();investigate('${i.id}')">investigate</button></td>
-      </tr>`).join('');
-    $('incidents').innerHTML = list.length
-      ? `<table><thead><tr><th>status</th><th>sev</th><th>service</th><th>rule</th><th>detected</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-      : '<span class="muted">no incidents yet — hit a chaos button</span>';
+        <td>${i.status === 'OPEN'
+          ? `<button class="btn small" onclick="event.stopPropagation();investigate('${i.id}')">investigate</button>`
+          : `<button class="btn small" onclick="event.stopPropagation();replay('${i.id}')">▶ replay</button>`}</td>
+      </tr>`;
+    $('incidents').innerHTML = open.length
+      ? `<table><thead><tr><th>status</th><th>sev</th><th>service</th><th>rule</th><th>detected</th><th></th></tr></thead><tbody>${open.map(row).join('')}</tbody></table>`
+      : '<span class="muted">no open incidents — hit a chaos button</span>';
+    $('history').innerHTML = resolved.length
+      ? `<table><thead><tr><th>status</th><th>sev</th><th>service</th><th>rule</th><th>detected</th><th></th></tr></thead><tbody>${resolved.map(row).join('')}</tbody></table>`
+      : '<span class="muted">no resolved incidents yet</span>';
   } catch (e) { $('incidents').innerHTML = '<span class="bad">error: ' + e.message + '</span>'; }
 }
 
@@ -248,6 +279,117 @@ function renderRootCause(rc) {
 function tick() {
   clearInterval(state.refreshTimer);
   if ($('autorefresh').checked) state.refreshTimer = setInterval(loadIncidents, 10000);
+}
+
+function buildTimeline(inc, investigations) {
+  const nodes = [];
+  const p = inc.payload || {};
+  nodes.push({
+    time: inc.detected_at,
+    title: `Incident detected — ${inc.detection_rule_name || 'manual'}`,
+    body: `${inc.title || '—'}<br><span class="pill sev sev-${inc.severity}">${inc.severity}</span> on <b>${inc.service}</b>` +
+      (p.value !== undefined ? ` · value <b>${p.value}</b> (threshold ${p.threshold})` : ''),
+  });
+  const inv = investigations && investigations[0];
+  if (!inv) {
+    nodes.push({ time: null, title: 'No investigation was run', body: 'This incident was resolved without an investigation.' });
+    return nodes;
+  }
+  nodes.push({
+    time: inv.created_at,
+    title: 'Investigation started',
+    body: inv.id + ' — collecting evidence from all sources',
+  });
+  const stepOrder = ['database', 'deployment', 'kafka', 'logs', 'metrics', 'redis', 'traces'];
+  const sorted = (inv.steps || []).slice().sort((a, b) =>
+    stepOrder.indexOf(a.step_type) - stepOrder.indexOf(b.step_type));
+  for (const s of sorted) {
+    nodes.push({
+      time: s.completed_at || s.started_at,
+      title: `Evidence step — ${s.step_type}`,
+      body: s.status + (s.error ? ' · <span class="bad">' + s.error + '</span>' : ''),
+    });
+  }
+  nodes.push({
+    time: inv.updated_at,
+    title: `Investigation ${inv.status}`,
+    body: `${(inv.steps || []).filter(s => s.status === 'COMPLETED').length}/${(inv.steps || []).length} steps completed`,
+  });
+  return nodes;
+}
+
+async function replay(id) {
+  clearTimeout(state.invPoll);
+  try {
+    const [inc, invs] = await Promise.all([
+      j('GET', '/api/v1/incidents/' + id),
+      j('GET', '/api/v1/incidents/' + id + '/investigations'),
+    ]);
+    const nodes = buildTimeline(inc, invs);
+    const inv = invs && invs[0];
+    let rootCause = null, candidates = [];
+    if (inv && inv.status === 'READY') {
+      try { rootCause = await j('GET', '/api/v1/investigations/' + inv.id + '/root-cause'); } catch (e) {}
+      try { candidates = await j('GET', '/api/v1/investigations/' + inv.id + '/candidates'); } catch (e) {}
+    }
+    if (rootCause) {
+      nodes.push({
+        time: null,
+        title: `Root cause — ${rootCause.root_cause_type}`,
+        body: `<b>${rootCause.title}</b> (confidence ${rootCause.confidence}, ${rootCause.selection_mode})` +
+          (rootCause.summary ? '<br>' + rootCause.summary : ''),
+      });
+      if (candidates.length) {
+        nodes.push({
+          time: null,
+          title: `Correlation — ${candidates.length} candidate(s)`,
+          body: candidates.map(c => `${c.root_cause_type} (${c.status}, confidence ${c.confidence})`).join(' · '),
+        });
+      }
+    }
+    renderTimeline(inc, nodes);
+  } catch (e) { toast('replay failed: ' + e.message, 6000); }
+}
+
+function renderTimeline(inc, nodes) {
+  const box = $('incident-detail');
+  const speed = parseInt($('replay-speed') ? $('replay-speed').value : 700, 10) || 700;
+  box.innerHTML =
+    '<div class="kv">' +
+    '<span class="k">incident</span><span>' + short(inc.id) + '</span>' +
+    '<span class="k">service</span><span>' + inc.service + '</span>' +
+    '<span class="k">status</span><span class="st-' + inc.status + '">' + inc.status + '</span>' +
+    '</div>' +
+    '<div id="timeline">' + nodes.map((n, i) =>
+      '<div class="tl-node" id="tl-' + i + '">' +
+      '<div class="tl-time">' + (n.time ? ts(n.time) : '') + '</div>' +
+      '<div class="tl-title">' + n.title + '</div>' +
+      '<div class="tl-body">' + n.body + '</div></div>').join('') +
+    '</div>' +
+    '<div id="replay-bar"><button onclick="playReplay()">▶ play</button>' +
+    '<select id="replay-speed"><option value="1200">slow</option><option value="700" selected>normal</option><option value="250">fast</option></select>' +
+    '<span class="muted">what happened, in order</span></div>';
+  state.replayNodes = nodes;
+}
+
+function playReplay() {
+  const nodes = state.replayNodes || [];
+  let i = 0;
+  const speed = parseInt($('replay-speed').value, 10) || 700;
+  const reveal = () => {
+    if (i >= nodes.length) return;
+    const el = $('tl-' + i);
+    if (el) { el.classList.add('lit'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    i++;
+    if (i >= nodes.length) {
+      const last = $('tl-' + (nodes.length - 1));
+      if (last) last.classList.add('done');
+      return;
+    }
+    setTimeout(reveal, speed);
+  };
+  document.querySelectorAll('#timeline .tl-node').forEach(n => n.classList.remove('lit', 'done'));
+  reveal();
 }
 
 $('api-url').textContent = location.origin.replace(/^http/, 'lab');

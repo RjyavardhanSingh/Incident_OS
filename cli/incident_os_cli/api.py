@@ -67,6 +67,9 @@ class Api:
     def get_investigation(self, investigation_id: str):
         return self._request("GET", f"/api/v1/investigations/{investigation_id}")
 
+    def list_incident_investigations(self, incident_id: str):
+        return self._request("GET", f"/api/v1/incidents/{incident_id}/investigations")
+
     def evidence(self, investigation_id: str):
         return self._request("GET", f"/api/v1/investigations/{investigation_id}/evidence")
 

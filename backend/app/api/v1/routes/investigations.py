@@ -83,6 +83,27 @@ async def get_investigation(
     return await _investigation_out(session, investigation)
 
 
+@router.get(
+    "/incidents/{incident_id}/investigations",
+    response_model=list[InvestigationOut],
+    description="List all investigations run for an incident, newest first.",
+)
+async def list_incident_investigations(
+    incident_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    incident = await session.get(Incident, incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    result = await session.execute(
+        select(Investigation)
+        .where(Investigation.incident_id == incident_id)
+        .order_by(Investigation.created_at.desc())
+    )
+    investigations = list(result.scalars().all())
+    return [await _investigation_out(session, inv) for inv in investigations]
+
+
 @router.get("/investigations/{investigation_id}/evidence", response_model=list[EvidenceOut])
 async def list_investigation_evidence(
     investigation_id: uuid.UUID,
