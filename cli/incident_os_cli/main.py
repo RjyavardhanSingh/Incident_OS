@@ -311,6 +311,12 @@ def cmd_lab(args):
     return 0
 
 
+def cmd_tui(args):
+    from incident_os_cli.tui import IncidentOSTUI
+
+    return IncidentOSTUI(_api(args), refresh_s=args.refresh).run()
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="incident-os",
@@ -408,6 +414,10 @@ def build_parser():
     p_lab = sub.add_parser("lab", help="start the web chaos lab dashboard")
     p_lab.add_argument("--port", type=int, default=8080, help="local port (default 8080)")
     p_lab.set_defaults(func=cmd_lab)
+
+    p_tui = sub.add_parser("tui", help="interactive terminal dashboard")
+    p_tui.add_argument("--refresh", type=float, default=10.0, help="auto-refresh seconds")
+    p_tui.set_defaults(func=cmd_tui)
 
     return parser
 
