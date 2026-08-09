@@ -1,0 +1,67 @@
+# yaml-language-server: $schema=https://api.app-prg1.zerops.io/api/rest/public/settings/import-project-yml-json-schema.json
+# Incident OS - Phase 7: Zerops-managed Kafka + supporting infra.
+#
+# Import with:
+#   zcli project project-import infra/zerops-import.yml
+#
+# Services (all NON_HA / single-node for development):
+#   kafka  - Zerops-managed Kafka (SASL PLAIN auth, port 9092)
+#   db     - PostgreSQL 17 (connection vars referenced below)
+#   cache  - Valkey/Redis 7.2 (connection string referenced below)
+#   api    - FastAPI backend (python@3.12), code deployed later via `zcli push`
+#   worker - event worker (python@3.12), code deployed later via `zcli push`
+project:
+  name: incident-os
+  description: "Incident OS - deterministic incident investigation platform"
+  corePackage: LIGHT
+  tags:
+    - incident-os
+    - dev
+  envVariables:
+    ENVIRONMENT: production
+
+services:
+  - hostname: kafka
+    type: kafka@3.9
+    priority: 10
+
+  - hostname: db
+    type: postgresql:single@17
+    priority: 9
+
+  - hostname: cache
+    type: valkey@7.2
+    priority: 8
+
+  - hostname: api
+    type: python@3.12
+    priority: 7
+    startWithoutCode: true
+    enableSubdomainAccess: true
+    maxContainers: 1
+    envSecrets:
+      DATABASE_URL: 'postgresql+psycopg://${db_user}:${db_password}@${db_hostname}:${db_port}/${db_dbName}'
+      DEMO_DATABASE_URL: 'postgresql+psycopg://${db_user}:${db_password}@${db_hostname}:${db_port}/${db_dbName}'
+      DEMO_REDIS_URL: '${cache_connectionString}'
+      KAFKA_BOOTSTRAP_SERVERS: '${kafka_hostname}:9092'
+      KAFKA_GROUP_ID: investigation-workers
+      KAFKA_SECURITY_PROTOCOL: SASL_PLAINTEXT
+      KAFKA_SASL_MECHANISM: PLAIN
+      KAFKA_SASL_USERNAME: '${kafka_user}'
+      KAFKA_SASL_PASSWORD: '${kafka_password}'
+
+  - hostname: worker
+    type: python@3.12
+    priority: 6
+    startWithoutCode: true
+    maxContainers: 1
+    envSecrets:
+      DATABASE_URL: 'postgresql+psycopg://${db_user}:${db_password}@${db_hostname}:${db_port}/${db_dbName}'
+      DEMO_DATABASE_URL: 'postgresql+psycopg://${db_user}:${db_password}@${db_hostname}:${db_port}/${db_dbName}'
+      DEMO_REDIS_URL: '${cache_connectionString}'
+      KAFKA_BOOTSTRAP_SERVERS: '${kafka_hostname}:9092'
+      KAFKA_GROUP_ID: investigation-workers
+      KAFKA_SECURITY_PROTOCOL: SASL_PLAINTEXT
+      KAFKA_SASL_MECHANISM: PLAIN
+      KAFKA_SASL_USERNAME: '${kafka_user}'
+      KAFKA_SASL_PASSWORD: '${kafka_password}'
