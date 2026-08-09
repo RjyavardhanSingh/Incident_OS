@@ -105,6 +105,35 @@ def cmd_incidents_investigate(args):
     return 0
 
 
+def cmd_incidents_investigations(args):
+    api = _api(args)
+    try:
+        incident_id = api.resolve_incident_id(args.id)
+        investigations = api.list_incident_investigations(incident_id)
+    except ApiError as exc:
+        print(f"error: {exc}")
+        return 1
+    if args.json:
+        output.dump_json(investigations)
+        return 0
+    if not investigations:
+        print("no investigations for this incident")
+        return 0
+    output.print_table(
+        ["ID", "STATUS", "CREATED", "UPDATED"],
+        [
+            [
+                output.short_id(i["id"]),
+                i["status"],
+                i["created_at"][:19].replace("T", " "),
+                i["updated_at"][:19].replace("T", " ") if i.get("updated_at") else "-",
+            ]
+            for i in investigations
+        ],
+    )
+    return 0
+
+
 def cmd_incidents_resolve(args):
     api = _api(args)
     try:
@@ -275,6 +304,13 @@ def cmd_demo(args):
     return demo_cmd.run(_api(args), args.profile, args.wait)
 
 
+def cmd_lab(args):
+    from incident_os_cli.lab import serve
+
+    serve(_api(args).base_url, args.port)
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="incident-os",
@@ -315,6 +351,11 @@ def build_parser():
     p_inv.add_argument("id", help="incident id")
     p_inv.set_defaults(func=cmd_incidents_investigate)
     add_json(p_inv)
+
+    p_inv_list = p_incidents_sub.add_parser("investigations", help="list investigations for an incident")
+    p_inv_list.add_argument("id", help="incident id")
+    p_inv_list.set_defaults(func=cmd_incidents_investigations)
+    add_json(p_inv_list)
 
     p_resolve = p_incidents_sub.add_parser("resolve", help="resolve an open incident")
     p_resolve.add_argument("id", help="incident id")
@@ -363,6 +404,10 @@ def build_parser():
     p_demo.add_argument("--wait", type=int, default=480, help="detection wait in seconds")
     p_demo.set_defaults(func=cmd_demo)
     add_json(p_demo)
+
+    p_lab = sub.add_parser("lab", help="start the web chaos lab dashboard")
+    p_lab.add_argument("--port", type=int, default=8080, help="local port (default 8080)")
+    p_lab.set_defaults(func=cmd_lab)
 
     return parser
 

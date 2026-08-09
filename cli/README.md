@@ -38,11 +38,28 @@ incident-os investigation root-cause <id>
 
 incident-os emit [--profile all|http|kafka|redis|trace]
 incident-os demo [--profile all] [--wait 480]
+incident-os lab [--port 8080]      # web chaos lab dashboard
 ```
 
 Incident ids may be abbreviated to a unique prefix.
 
 Add `--json` anywhere to get raw JSON instead of tables.
+
+## Web chaos lab
+
+`incident-os lab` starts a local dashboard (default http://127.0.0.1:8080)
+with chaos buttons, a live incident list, and an investigation panel. It
+proxies the Incident OS API locally, so it works with any
+`INCIDENT_OS_URL` and needs no CORS setup.
+
+```sh
+INCIDENT_OS_URL=https://api-2d4e-8000.prg1.zerops.app incident-os lab
+```
+
+Then open http://127.0.0.1:8080 and use the chaos buttons to emit failure
+telemetry, click an incident to investigate, and watch the investigation
+run through to the root cause. The CLI remains the primary interface;
+the lab is a demo/dashboard view.
 
 ## End-to-end demo
 
