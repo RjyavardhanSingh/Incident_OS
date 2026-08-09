@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     kafka_sasl_mechanism: str = "PLAIN"
     kafka_sasl_username: str = ""
     kafka_sasl_password: str = ""
+    kafka_broker_address_family: str = "v4"
     demo_database_url: str = (
         "postgresql+psycopg://incident_os:incident_os_dev@localhost:5433/incident_os_dev"
     )

@@ -49,6 +49,7 @@ services:
       KAFKA_SASL_MECHANISM: PLAIN
       KAFKA_SASL_USERNAME: '${kafka_user}'
       KAFKA_SASL_PASSWORD: '${kafka_password}'
+      KAFKA_BROKER_ADDRESS_FAMILY: v4
 
   - hostname: worker
     type: python@3.12
@@ -65,3 +66,4 @@ services:
       KAFKA_SASL_MECHANISM: PLAIN
       KAFKA_SASL_USERNAME: '${kafka_user}'
       KAFKA_SASL_PASSWORD: '${kafka_password}'
+      KAFKA_BROKER_ADDRESS_FAMILY: v4

@@ -17,6 +17,7 @@ def test_client_config_plaintext_by_default(monkeypatch):
     )
     cfg = client_config()
     assert cfg["bootstrap.servers"] == "localhost:9092"
+    assert cfg["broker.address.family"] == "v4"
     assert "security.protocol" not in cfg
 
 
@@ -30,6 +31,7 @@ def test_client_config_sasl_plain(monkeypatch):
     )
     cfg = client_config()
     assert cfg["bootstrap.servers"] == "kafka.internal:9092"
+    assert cfg["broker.address.family"] == "v4"
     assert cfg["security.protocol"] == "SASL_PLAINTEXT"
     assert cfg["sasl.mechanism"] == "PLAIN"
     assert cfg["sasl.username"] == "app-user"
@@ -45,3 +47,12 @@ def test_client_config_extra_overrides_base(monkeypatch):
     cfg = client_config({"group.id": "workers", "enable.auto.commit": False})
     assert cfg["group.id"] == "workers"
     assert cfg["enable.auto.commit"] is False
+
+
+def test_client_config_address_family_override(monkeypatch):
+    _patch_settings(
+        monkeypatch,
+        KAFKA_BOOTSTRAP_SERVERS="localhost:9092",
+        KAFKA_BROKER_ADDRESS_FAMILY="any",
+    )
+    assert client_config()["broker.address.family"] == "any"

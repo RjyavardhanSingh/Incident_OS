@@ -18,7 +18,10 @@ def client_config(extra: dict | None = None) -> dict:
     Local dev uses PLAINTEXT (the default); Zerops-managed Kafka uses SASL PLAIN
     with generated credentials, wired in via env vars.
     """
-    cfg: dict = {"bootstrap.servers": settings.kafka_bootstrap_servers}
+    cfg: dict = {
+        "bootstrap.servers": settings.kafka_bootstrap_servers,
+        "broker.address.family": settings.kafka_broker_address_family,
+    }
     if settings.kafka_security_protocol.upper() != "PLAINTEXT":
         cfg.update(
             {
