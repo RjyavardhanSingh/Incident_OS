@@ -7,9 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.investigation import service as investigation_service
+from app.models.correlation import CorrelationRun, RootCauseCandidate
 from app.models.evidence import Evidence
 from app.models.incident import Incident
 from app.models.investigation import Investigation, InvestigationStep
+from app.schemas.correlation import CorrelationRunOut, RootCauseCandidateOut
 from app.schemas.evidence import EvidenceOut
 from app.schemas.investigation import InvestigationOut, InvestigationStepOut
 
@@ -54,6 +56,7 @@ async def start_investigation(
             investigation,
             incident,
         )
+        publisher.flush()
     except Exception as exc:  # pragma: no cover - resilience path
         raise HTTPException(
             status_code=503,
@@ -85,5 +88,31 @@ async def list_investigation_evidence(
         select(Evidence)
         .where(Evidence.investigation_id == investigation_id)
         .order_by(Evidence.timestamp.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/investigations/{investigation_id}/candidates", response_model=list[RootCauseCandidateOut])
+async def list_root_cause_candidates(
+    investigation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(RootCauseCandidate)
+        .where(RootCauseCandidate.investigation_id == investigation_id)
+        .order_by(RootCauseCandidate.rank.asc())
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/investigations/{investigation_id}/correlation-runs", response_model=list[CorrelationRunOut])
+async def list_correlation_runs(
+    investigation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(CorrelationRun)
+        .where(CorrelationRun.investigation_id == investigation_id)
+        .order_by(CorrelationRun.created_at.desc())
     )
     return list(result.scalars().all())

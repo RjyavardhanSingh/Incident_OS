@@ -4,7 +4,7 @@ import logging
 from app.core.db import async_session_factory
 from app.events.kafka import KafkaEventConsumer, KafkaEventPublisher
 from app.models.investigation import STEP_TOPIC_MAP
-from app.worker.service import handle_envelope
+from app.worker.service import CORRELATION_EVENT_TYPE, handle_envelope
 
 
 def main() -> None:
@@ -15,13 +15,14 @@ def main() -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     publisher = KafkaEventPublisher()
-    consumer = KafkaEventConsumer(topics=list(STEP_TOPIC_MAP.values()))
+    topics = list(STEP_TOPIC_MAP.values()) + [CORRELATION_EVENT_TYPE]
+    consumer = KafkaEventConsumer(topics=topics)
 
     async def on_message(envelope):
         await handle_envelope(async_session_factory, publisher, envelope)
 
     consumer.start(loop, on_message)
-    logging.info("worker pool consuming %d topics", len(STEP_TOPIC_MAP))
+    logging.info("worker pool consuming %d topics", len(topics))
     try:
         loop.run_forever()
     except KeyboardInterrupt:
