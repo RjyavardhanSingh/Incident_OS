@@ -70,7 +70,6 @@ backend/   FastAPI API, detection engine, investigation worker, sources
 cli/       incident-os CLI + terminal dashboard + local web chaos lab
 infra/     local docker-compose for Kafka + Redis, Zerops import blueprint
 simulator/ fault telemetry generators
-docs/      demo video script
 ```
 
 ---
