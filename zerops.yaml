@@ -1,7 +1,7 @@
 zerops:
   - setup: api
     build:
-      base: alpine/python@3.12
+      base: ubuntu/python@3.12
       buildCommands:
         - python -m pip install --target=./vendor ./backend
       deployFiles:
@@ -15,7 +15,7 @@ zerops:
           port: 8000
           path: /api/v1/health
     run:
-      base: alpine/python@3.12
+      base: ubuntu/python@3.12
       initCommands:
         - zsc execOnce ${appVersionId} --retryUntilSuccessful -- python -m alembic -c /var/www/backend/alembic.ini upgrade head
       start: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -27,7 +27,7 @@ zerops:
 
   - setup: worker
     build:
-      base: alpine/python@3.12
+      base: ubuntu/python@3.12
       buildCommands:
         - python -m pip install --target=./vendor ./backend
       deployFiles:
@@ -36,7 +36,7 @@ zerops:
       cache:
         - vendor
     run:
-      base: alpine/python@3.12
+      base: ubuntu/python@3.12
       start: python -m app.worker
       envVariables:
         PYTHONPATH: /var/www/vendor
