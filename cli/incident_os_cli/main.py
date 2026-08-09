@@ -275,6 +275,13 @@ def cmd_demo(args):
     return demo_cmd.run(_api(args), args.profile, args.wait)
 
 
+def cmd_lab(args):
+    from incident_os_cli.lab import serve
+
+    serve(_api(args).base_url, args.port)
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="incident-os",
@@ -363,6 +370,10 @@ def build_parser():
     p_demo.add_argument("--wait", type=int, default=480, help="detection wait in seconds")
     p_demo.set_defaults(func=cmd_demo)
     add_json(p_demo)
+
+    p_lab = sub.add_parser("lab", help="start the web chaos lab dashboard")
+    p_lab.add_argument("--port", type=int, default=8080, help="local port (default 8080)")
+    p_lab.set_defaults(func=cmd_lab)
 
     return parser
 

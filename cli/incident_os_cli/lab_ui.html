@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident OS — Chaos Lab</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #12161f; --panel2: #1a202c; --border: #262e3d;
+    --text: #e2e8f0; --muted: #8b97a8; --accent: #38bdf8; --ok: #34d399;
+    --warn: #fbbf24; --bad: #f87171; --violet: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+         background: var(--bg); color: var(--text); font-size: 13px; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 20px;
+           background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
+  header h1 span { color: var(--accent); }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px;
+          border: 1px solid var(--border); background: var(--panel2); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .spacer { flex: 1; }
+  .url { color: var(--muted); }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; padding: 14px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+              color: var(--muted); margin: 0 0 12px; }
+  .btn { width: 100%; padding: 9px 12px; margin: 5px 0; border-radius: 8px;
+         border: 1px solid var(--border); background: var(--panel2); color: var(--text);
+         font-family: inherit; cursor: pointer; font-size: 13px; text-align: left; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: linear-gradient(90deg, #0284c7, #2563eb); border: none; color: #fff; text-align: center; }
+  .btn.danger { background: #7f1d1d; border: none; color: #fff; text-align: center; }
+  .btn.small { width: auto; padding: 4px 10px; font-size: 12px; margin: 2px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+           white-space: nowrap; }
+  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  td { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  .sev-critical { color: var(--bad); } .sev-major { color: var(--warn); } .sev-minor { color: var(--ok); }
+  .st-OPEN { color: var(--bad); font-weight: bold; }
+  .st-RESOLVED { color: var(--muted); }
+  .st-READY { color: var(--ok); font-weight: bold; }
+  .st-FAILED { color: var(--bad); font-weight: bold; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .step { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .step .n { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+  .step .s { font-weight: bold; margin-top: 4px; }
+  .s-COMPLETED { color: var(--ok); } .s-PENDING { color: var(--muted); }
+  .s-COLLECTING { color: var(--warn); } .s-FAILED { color: var(--bad); } .s-RUNNING { color: var(--accent); }
+  #rootcause { border-left: 3px solid var(--violet); background: var(--panel2);
+               border-radius: 8px; padding: 12px; margin-top: 12px; }
+  .rc-title { font-size: 15px; font-weight: bold; color: var(--violet); }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 10px; margin-top: 8px; }
+  .kv .k { color: var(--muted); }
+  .muted { color: var(--muted); }
+  #toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel2);
+           border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;
+           max-width: 360px; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  #incident-detail { margin-top: 12px; }
+  .row-hover:hover { background: var(--panel2); cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Incident OS <span>Chaos Lab</span></h1>
+  <span class="url" id="api-url"></span>
+  <span class="spacer"></span>
+  <span class="pill" id="health-pill">checking…</span>
+  <span class="pill" id="open-pill">0 open</span>
+</header>
+
+<main>
+  <div>
+    <div class="panel">
+      <h2>Chaos controls</h2>
+      <button class="btn primary" onclick="emitProfile('all')">▶ Emit full failure</button>
+      <button class="btn" onclick="emitProfile('http')">HTTP 5xx + p95 latency</button>
+      <button class="btn" onclick="emitProfile('kafka')">Kafka consumer lag</button>
+      <button class="btn" onclick="emitProfile('redis')">Redis error logs</button>
+      <button class="btn" onclick="emitProfile('trace')">Checkout trace (500)</button>
+      <button class="btn danger" onclick="resolveAll()">✕ Resolve all open incidents</button>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h2>Live</h2>
+      <label style="color:var(--muted)"><input type="checkbox" id="autorefresh" checked onchange="tick()"> auto-refresh (10s)</label>
+      <button class="btn small" onclick="loadIncidents()">⟳ Refresh now</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Incidents</h2>
+      <div id="incidents"><span class="muted">loading…</span></div>
+    </div>
+    <div class="panel" style="margin-top:16px" id="detail-wrap">
+      <h2>Investigation</h2>
+      <div id="incident-detail"><span class="muted">investigate an incident to see the pipeline here</span></div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const state = { invId: null, invPoll: null, refreshTimer: null };
+
+function $(id) { return document.getElementById(id); }
+function toast(msg, ms = 4000) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(state.invPoll); setTimeout(() => t.style.display = 'none', ms);
+}
+async function j(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+  return r.json();
+}
+const short = id => id ? id.split('-')[0] : '-';
+const ts = s => s ? s.replace('T', ' ').slice(0, 19) : '-';
+
+async function refreshHealth() {
+  try {
+    const h = await j('GET', '/api/v1/health');
+    const p = $('health-pill');
+    p.textContent = h.status === 'ok' ? '● connected · db ' + h.database : '● degraded';
+    p.className = 'pill ' + (h.status === 'ok' ? 'ok' : 'bad');
+  } catch (e) {
+    const p = $('health-pill'); p.textContent = '● offline'; p.className = 'pill bad';
+  }
+}
+
+async function loadIncidents() {
+  try {
+    const list = await j('GET', '/api/v1/incidents?limit=50');
+    const open = list.filter(i => i.status === 'OPEN').length;
+    $('open-pill').textContent = open + ' open';
+    const rows = list.map(i => `
+      <tr class="row-hover" onclick="showIncident('${i.id}')">
+        <td class="st-${i.status}">${i.status}</td>
+        <td class="sev-${i.severity}">${i.severity}</td>
+        <td>${i.service}</td>
+        <td>${i.detection_rule_name || '—'}</td>
+        <td>${ts(i.detected_at)}</td>
+        <td><button class="btn small" onclick="event.stopPropagation();investigate('${i.id}')">investigate</button></td>
+      </tr>`).join('');
+    $('incidents').innerHTML = list.length
+      ? `<table><thead><tr><th>status</th><th>sev</th><th>service</th><th>rule</th><th>detected</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<span class="muted">no incidents yet — hit a chaos button</span>';
+  } catch (e) { $('incidents').innerHTML = '<span class="bad">error: ' + e.message + '</span>'; }
+}
+
+async function emitProfile(profile) {
+  toast('emitting ' + profile + '…');
+  try { await j('POST', '/chaos/emit', { profile }); }
+  catch (e) { toast('emit failed: ' + e.message, 6000); return; }
+  toast('✓ emitted ' + profile + ' — incidents should appear within ~60s');
+  setTimeout(loadIncidents, 15000);
+}
+
+async function resolveAll() {
+  try {
+    const list = await j('GET', '/api/v1/incidents?limit=100');
+    const open = list.filter(i => i.status === 'OPEN');
+    for (const i of open) await j('POST', '/api/v1/incidents/' + i.id + '/resolve');
+    toast('resolved ' + open.length + ' incident(s)');
+    loadIncidents();
+  } catch (e) { toast('error: ' + e.message, 6000); }
+}
+
+async function showIncident(id) {
+  try {
+    const inc = await j('GET', '/api/v1/incidents/' + id);
+    $('incident-detail').innerHTML =
+      '<div class="kv">' +
+      '<span class="k">incident</span><span>' + inc.id + '</span>' +
+      '<span class="k">title</span><span>' + (inc.title || '—') + '</span>' +
+      '<span class="k">service</span><span>' + inc.service + '</span>' +
+      '<span class="k">severity</span><span class="sev-' + inc.severity + '">' + inc.severity + '</span>' +
+      '<span class="k">status</span><span class="st-' + inc.status + '">' + inc.status + '</span>' +
+      '<span class="k">rule</span><span>' + (inc.detection_rule_name || '—') + '</span>' +
+      '</div>' +
+      '<button class="btn primary" onclick="investigate(\'' + inc.id + '\')">start investigation</button>';
+  } catch (e) { toast('error: ' + e.message); }
+}
+
+async function investigate(id) {
+  toast('starting investigation on ' + short(id) + '…');
+  try {
+    const inv = await j('POST', '/api/v1/incidents/' + id + '/investigate');
+    state.invId = inv.id;
+    renderInvestigation(inv);
+    pollInvestigation(inv.id);
+  } catch (e) { toast('investigate failed: ' + e.message, 6000); }
+}
+
+async function pollInvestigation(invId) {
+  clearTimeout(state.invPoll);
+  const next = () => { state.invPoll = setTimeout(() => pollInvestigation(invId), 5000); };
+  try {
+    const inv = await j('GET', '/api/v1/investigations/' + invId);
+    renderInvestigation(inv);
+    if (inv.status === 'READY' || inv.status === 'FAILED') {
+      if (inv.status === 'READY') {
+        try { renderRootCause(await j('GET', '/api/v1/investigations/' + invId + '/root-cause')); } catch (e) {}
+      }
+      return;
+    }
+    next();
+  } catch (e) { toast('poll error: ' + e.message, 6000); next(); }
+}
+
+function renderInvestigation(inv) {
+  const steps = (inv.steps || []).map(s =>
+    '<div class="step"><div class="n">' + s.step_type + '</div>' +
+    '<div class="s s-' + s.status + '">' + s.status + (s.error ? ' ⚠' : '') + '</div></div>').join('');
+  $('incident-detail').innerHTML =
+    '<div class="kv">' +
+    '<span class="k">investigation</span><span>' + inv.id + '</span>' +
+    '<span class="k">status</span><span class="st-' + inv.status + '">' + inv.status + '</span>' +
+    '<span class="k">incident</span><span>' + (inv.incident_id || '—') + '</span>' +
+    '</div>' +
+    '<div class="steps" style="margin-top:12px">' + steps + '</div>' +
+    '<div id="rootcause"></div>';
+}
+
+function renderRootCause(rc) {
+  const chain = (rc.evidence_chain || []).map(e =>
+    (typeof e === 'string' ? e : e.summary || e.step || JSON.stringify(e))).join(' · ');
+  $('rootcause').innerHTML =
+    '<div class="rc-title">root cause: ' + rc.title + '</div>' +
+    '<div class="kv">' +
+    '<span class="k">type</span><span>' + rc.root_cause_type + '</span>' +
+    '<span class="k">selection</span><span>' + rc.selection_mode + '</span>' +
+    '<span class="k">confidence</span><span>' + rc.confidence + '</span>' +
+    '<span class="k">related</span><span>' + (rc.related_services || []).join(', ') + '</span>' +
+    '</div>' +
+    (rc.summary ? '<div class="muted" style="margin-top:6px">' + rc.summary + '</div>' : '') +
+    (rc.reasoning ? '<div class="muted" style="margin-top:6px">' + rc.reasoning + '</div>' : '') +
+    (chain ? '<div class="muted" style="margin-top:6px">evidence: ' + chain + '</div>' : '');
+}
+
+function tick() {
+  clearInterval(state.refreshTimer);
+  if ($('autorefresh').checked) state.refreshTimer = setInterval(loadIncidents, 10000);
+}
+
+$('api-url').textContent = location.origin.replace(/^http/, 'lab');
+refreshHealth(); loadIncidents(); tick();
+</script>
+</body>
+</html>
