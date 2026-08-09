@@ -1,6 +1,7 @@
 """Interactive terminal dashboard for Incident OS (Textual TUI)."""
 
 import time
+from functools import partial
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -303,16 +304,16 @@ class IncidentOSTUI(App):
             self.run_worker(self._fetch_replay, thread=True, group="replay")
 
     def action_emit_all(self) -> None:
-        self.run_worker(self._emit, thread=True, group="emit", profile="all")
+        self.run_worker(partial(self._emit, "all"), thread=True, group="emit")
 
     def action_emit_http(self) -> None:
-        self.run_worker(self._emit, thread=True, group="emit", profile="http")
+        self.run_worker(partial(self._emit, "http"), thread=True, group="emit")
 
     def action_emit_kafka(self) -> None:
-        self.run_worker(self._emit, thread=True, group="emit", profile="kafka")
+        self.run_worker(partial(self._emit, "kafka"), thread=True, group="emit")
 
     def action_emit_redis(self) -> None:
-        self.run_worker(self._emit, thread=True, group="emit", profile="redis")
+        self.run_worker(partial(self._emit, "redis"), thread=True, group="emit")
 
     def action_emit_trace(self) -> None:
-        self.run_worker(self._emit, thread=True, group="emit", profile="trace")
+        self.run_worker(partial(self._emit, "trace"), thread=True, group="emit")
