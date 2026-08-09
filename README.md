@@ -30,6 +30,31 @@ lab — no CORS hacks, no dashboard-only API endpoints.
 4. **Verify** — candidates that pass deterministic verification are selected,
    and the root cause is reported with its evidence chain.
 
+## Replay: teach new developers your old failures
+
+Every incident keeps its full investigation history — the evidence steps, the
+correlation candidates, and the selected root cause. Resolved incidents don't
+disappear; they become a **replayable timeline** that explains exactly what
+failed, when, and why.
+
+That makes incident history a built-in onboarding tool:
+
+- **A new developer** picks any past incident and replays it in seconds:
+  detection → the seven evidence steps → the verified root cause — without
+  needing to have been there, or to read logs across six systems.
+- **Post-incident reviews** stop being "trust me, we looked" — the replay IS
+  the record.
+- **Prevention** — replays make it obvious which failure modes recur, so a
+  team learns from its old incidents instead of rediscovering them.
+
+Replay is available everywhere:
+
+| Interface | How |
+|---|---|
+| Web chaos lab | History tab → **▶ replay** on any resolved incident (animated, with slow/normal/fast speed) |
+| Terminal dashboard (TUI) | select a resolved incident → press **`v`** |
+| CLI | `incident-os incidents investigations <id>` |
+
 ## Architecture
 
 ```
