@@ -6,7 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.models.incident import DetectionRule, Incident
+from app.models.incident import (
+    INCIDENT_STATUS_OPEN,
+    INCIDENT_STATUS_RESOLVED,
+    DetectionRule,
+    Incident,
+)
 from app.schemas.incident import DetectionRuleOut, IncidentCreate, IncidentOut
 
 router = APIRouter(prefix="/api/v1", tags=["incidents"])
@@ -71,3 +76,27 @@ async def list_detection_rules(
         select(DetectionRule).order_by(DetectionRule.name)
     )
     return result.scalars().all()
+
+
+@router.post(
+    "/incidents/{incident_id}/resolve",
+    response_model=IncidentOut,
+    description="Resolves an open incident so its detection rule can fire again on new telemetry.",
+)
+async def resolve_incident(
+    incident_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    incident = await session.get(Incident, incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    if incident.status == INCIDENT_STATUS_RESOLVED:
+        raise HTTPException(status_code=409, detail="incident already resolved")
+    incident.status = INCIDENT_STATUS_RESOLVED
+    incident.payload = {
+        **incident.payload,
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await session.commit()
+    await session.refresh(incident)
+    return incident
