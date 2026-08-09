@@ -11,10 +11,12 @@ from app.models.correlation import CorrelationRun, RootCauseCandidate
 from app.models.evidence import Evidence
 from app.models.incident import Incident
 from app.models.investigation import Investigation, InvestigationStep
+from app.models.root_cause import RootCause
 from app.models.verification import VerificationResult, VerificationRun
 from app.schemas.correlation import CorrelationRunOut, RootCauseCandidateOut
 from app.schemas.evidence import EvidenceOut
 from app.schemas.investigation import InvestigationOut, InvestigationStepOut
+from app.schemas.root_cause import RootCauseOut
 from app.schemas.verification import VerificationResultOut, VerificationRunOut
 
 router = APIRouter(prefix="/api/v1", tags=["investigations"])
@@ -144,3 +146,17 @@ async def list_verification_runs(
         .order_by(VerificationRun.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+@router.get("/investigations/{investigation_id}/root-cause", response_model=RootCauseOut)
+async def get_root_cause(
+    investigation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(RootCause).where(RootCause.investigation_id == investigation_id)
+    )
+    root_cause = result.scalars().first()
+    if root_cause is None:
+        raise HTTPException(status_code=404, detail="root cause not selected")
+    return root_cause

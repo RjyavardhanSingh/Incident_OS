@@ -22,6 +22,7 @@ from app.models.verification import (
     VERIFICATION_RUN_STATUS_COMPLETED,
     VerificationRun,
 )
+from app.rootcause import engine as root_cause_engine
 from app.sources.contract import CollectionContext, EvidenceRecord
 from app.sources.registry import close_source, create_source
 from app.verification import engine as verification_engine
@@ -254,6 +255,9 @@ async def handle_verification_requested(session: AsyncSession, publisher, envelo
         run, results = await verification_engine.run_for_investigation(
             session, investigation_id
         )
+        root_cause = await root_cause_engine.select_for_investigation(
+            session, investigation_id
+        )
         await investigation_service.transition_investigation(
             session, investigation_id, INVESTIGATION_STATUS_READY
         )
@@ -271,6 +275,18 @@ async def handle_verification_requested(session: AsyncSession, publisher, envelo
                 "verified": run.verified_count,
                 "contradicted": run.contradicted_count,
                 "unverified": run.unverified_count,
+            },
+        )
+    )
+    publisher.publish(
+        EventEnvelope(
+            event_type="rootcause.completed",
+            incident_id=envelope.incident_id,
+            investigation_id=investigation_id,
+            producer="verification-worker",
+            payload={
+                "selection_mode": root_cause.selection_mode if root_cause else None,
+                "root_cause_type": root_cause.root_cause_type if root_cause else None,
             },
         )
     )
