@@ -9,7 +9,7 @@ from app.correlation.rules import (
     RC_REDIS_PRESSURE,
     run_correlation,
 )
-from app.detection.rules import RULE_REDIS_ERROR_RATE
+from app.detection.rules import RULE_HTTP_5XX_RATE, RULE_REDIS_ERROR_RATE
 from app.models.evidence import Evidence
 from app.models.incident import Incident
 
@@ -89,6 +89,26 @@ def test_kafka_lag_rule():
     kafka = next(c for c in candidates if c.root_cause_type == RC_KAFKA_LAG)
     assert kafka.confidence == 0.85
     assert "payments.processed" in kafka.title
+
+
+def test_redis_pressure_not_reported_for_service_without_redis():
+    incident = _incident(rule_type=RULE_HTTP_5XX_RATE)
+    evidence = [
+        _ev("otel", payload={"metric": "http.server.request.duration", "datapoints": [{"count": 10, "attributes": {"http.status_code": 503}}]}, ts=T0),
+        _ev("redis", signal="observation", payload={"observation": "clients", "connected_clients": 1}, ts=T0),
+    ]
+    candidates = run_correlation(incident, evidence, timedelta(seconds=300))
+    assert all(c.root_cause_type != RC_REDIS_PRESSURE for c in candidates)
+
+
+def test_kafka_lag_not_reported_for_service_without_kafka():
+    incident = _incident(rule_type=RULE_HTTP_5XX_RATE)
+    evidence = [
+        _ev("otel", payload={"metric": "http.server.request.duration", "datapoints": [{"count": 10, "attributes": {"http.status_code": 503}}]}, ts=T0),
+        _ev("kafka", signal="observation", payload={"observation": "topic_summary", "topic": "orders.created", "total_lag": 9000}, ts=T0),
+    ]
+    candidates = run_correlation(incident, evidence, timedelta(seconds=300))
+    assert all(c.root_cause_type != RC_KAFKA_LAG for c in candidates)
 
 
 def test_database_contention_rule_deadlocks():
