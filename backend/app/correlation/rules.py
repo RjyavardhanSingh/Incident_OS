@@ -9,6 +9,7 @@ from datetime import timedelta
 
 from app.detection.rules import (
     METRIC_HTTP_DURATION,
+    METRIC_KAFKA_CONSUMER_LAG,
     RULE_DEPLOYMENT_REGRESSION,
     RULE_KAFKA_CONSUMER_LAG,
     RULE_REDIS_ERROR_RATE,
@@ -136,17 +137,17 @@ def rule_dependency_failure(incident: Incident, evidence: list[Evidence]) -> Can
 
 
 def rule_redis_pressure(incident: Incident, evidence: list[Evidence]) -> CandidateDraft | None:
-    redis_obs = [ev for ev in evidence if _observation(ev, "clients")]
-    connected = [ev for ev in redis_obs]
     error_logs = [
         ev for ev in evidence
         if ev.service == incident.service and _is_error_log(ev)
         and "redis" in str(ev.payload).lower()
     ]
-    if not connected and not error_logs:
-        return None
-    chain = _sorted_chain(error_logs + connected)
     supporting = incident.payload.get("rule_type") == RULE_REDIS_ERROR_RATE
+    if not error_logs:
+        return None
+    redis_obs = [ev for ev in evidence if _observation(ev, "clients")]
+    connected = [ev for ev in redis_obs]
+    chain = _sorted_chain(error_logs + connected)
     confidence = 0.8 if supporting else 0.6
     return CandidateDraft(
         root_cause_type=RC_REDIS_PRESSURE,
@@ -171,11 +172,12 @@ def rule_kafka_lag(incident: Incident, evidence: list[Evidence]) -> CandidateDra
     ]
     metric_lag = [
         ev for ev in evidence
-        if (ev.payload or {}).get("metric") == "kafka.consumer.lag"
+        if (ev.payload or {}).get("metric") == METRIC_KAFKA_CONSUMER_LAG
+        and ev.service == incident.service
     ]
-    if not lagging and not metric_lag:
-        return None
     supporting = incident.payload.get("rule_type") == RULE_KAFKA_CONSUMER_LAG
+    if not metric_lag and not (lagging and supporting):
+        return None
     confidence = 0.85 if supporting else 0.6
     chain = _sorted_chain(metric_lag + lagging)
     topics = sorted({(ev.payload or {}).get("topic") for ev in lagging if (ev.payload or {}).get("topic")})
