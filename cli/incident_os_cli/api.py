@@ -64,6 +64,14 @@ class Api:
     def resolve_incident(self, incident_id: str):
         return self._request("POST", f"/api/v1/incidents/{incident_id}/resolve")
 
+    def clear_incidents(self, service=None, status=None):
+        params = {}
+        if service:
+            params["service"] = service
+        if status:
+            params["status"] = status
+        return self._request("DELETE", "/api/v1/incidents", params=params)
+
     def get_investigation(self, investigation_id: str):
         return self._request("GET", f"/api/v1/investigations/{investigation_id}")
 

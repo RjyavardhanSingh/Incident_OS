@@ -7,8 +7,9 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
+from textual.worker import WorkerState
 
-from incident_os_cli.api import Api, ApiError
+from incident_os_cli.api import Api
 from incident_os_cli.emit import emit
 
 _ORDER = ["database", "deployment", "kafka", "logs", "metrics", "redis", "traces"]
@@ -52,7 +53,7 @@ class IncidentOSTUI(App):
     #left { width: 3fr; }
     #right { width: 2fr; }
     #incidents-table { height: 1fr; }
-    #detail, #investigation { height: 1fr; border: round $primary; margin-top: 1; }
+    #detail, #investigation { height: 1fr; min-height: 4; border: round $primary; margin-top: 1; }
     .section-label { height: 1; color: $text-muted; text-style: bold; }
     """
 
@@ -60,6 +61,7 @@ class IncidentOSTUI(App):
         Binding("r", "reload", "refresh"),
         Binding("i", "investigate", "investigate"),
         Binding("x", "resolve", "resolve"),
+        Binding("C", "clear", "clear incidents"),
         Binding("v", "replay", "replay"),
         Binding("a", "emit_all", "emit all"),
         Binding("h", "emit_http", "emit http"),
@@ -76,6 +78,8 @@ class IncidentOSTUI(App):
         self.selected = None
         self._investigation_id = None
         self._investigation_timer = None
+        self._clear_arm = False
+        self._suppress_highlight = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -119,13 +123,34 @@ class IncidentOSTUI(App):
         return self.api.list_incidents(limit=100)
 
     def _fetch_detail(self):
-        return self.api.get_incident(self.selected)
+        inc = self.api.get_incident(self.selected)
+        inv = None
+        rc = None
+        try:
+            investigations = self.api.list_incident_investigations(self.selected)
+        except Exception:
+            investigations = []
+        if investigations:
+            inv = investigations[0]
+            if inv.get("status") == "READY":
+                try:
+                    rc = self.api.root_cause(inv["id"])
+                except Exception:
+                    rc = None
+        return inc, inv, rc
 
     def _fetch_replay(self):
-        return (
-            self.api.get_incident(self.selected),
-            self.api.list_incident_investigations(self.selected),
-        )
+        inc = self.api.get_incident(self.selected)
+        investigations = self.api.list_incident_investigations(self.selected)
+        rc = None
+        if investigations:
+            inv = investigations[0]
+            if inv.get("status") == "READY":
+                try:
+                    rc = self.api.root_cause(inv["id"])
+                except Exception:
+                    rc = None
+        return inc, investigations, rc
 
     def _emit(self, profile: str) -> str:
         emit(self.api.base_url + "/api/v1/otlp", profile)
@@ -136,17 +161,16 @@ class IncidentOSTUI(App):
         worker = event.worker
         if not worker.is_finished:
             return
-        try:
-            result = worker.result
-        except ApiError as exc:
-            self._note(f"!! {exc}")
+        if worker.state == WorkerState.ERROR:
+            self._note(f"!! {worker.group} failed: {worker.error or 'unknown error'}")
             return
+        result = worker.result
         if result is None:
             return
         if worker.group == "load":
             self._render_incidents(result)
         elif worker.group == "detail":
-            self._render_detail(result)
+            self._render_detail(*result)
         elif worker.group == "replay":
             self._render_replay(*result)
         elif worker.group == "emit":
@@ -155,37 +179,77 @@ class IncidentOSTUI(App):
         elif worker.group == "start_investigation":
             self._investigation_id = result
             self._investigation_timer = self.set_interval(5, self._poll_investigation)
+        elif worker.group == "poll_investigation":
+            self._render_investigation(*result)
         elif worker.group == "resolve":
-            self._note(f"resolved {result.get('id')}")
+            self._note(f"resolved {result}")
+            self.reload()
+            self._show_detail_for(self.selected)
+        elif worker.group == "clear":
+            self._note(f"cleared {result} incident(s)")
+            self.selected = None
+            self._investigation_id = None
+            if self._investigation_timer:
+                self._investigation_timer.stop()
+                self._investigation_timer = None
+            self._investigation().clear()
             self.reload()
 
     # ---- rendering ---------------------------------------------------
 
     def _render_incidents(self, incidents) -> None:
         table = self.query_one("#incidents-table", DataTable)
-        table.clear()
-        for inc in incidents:
-            table.add_row(
-                inc.get("status", ""),
-                inc.get("severity", ""),
-                inc.get("service", ""),
-                inc.get("detection_rule_name") or "-",
-                _ts(inc.get("detected_at")),
-                inc.get("id", ""),
-                key=inc.get("id", ""),
-            )
+        prev_selected = self.selected
+        ids = {inc.get("id") for inc in incidents}
+        self._suppress_highlight = True
+        try:
+            table.clear()
+            for inc in incidents:
+                table.add_row(
+                    inc.get("status", ""),
+                    inc.get("severity", ""),
+                    inc.get("service", ""),
+                    inc.get("detection_rule_name") or "-",
+                    _ts(inc.get("detected_at")),
+                    inc.get("id", ""),
+                    key=inc.get("id", ""),
+                )
+            if prev_selected and prev_selected in ids:
+                table.move_cursor(row=table.get_row_index(prev_selected))
+            elif incidents:
+                self._show_detail_for(incidents[0]["id"])
+        finally:
+            self._suppress_highlight = False
 
-    def _render_detail(self, inc) -> None:
+    def _render_detail(self, inc, inv, rc) -> None:
         pane = self._detail()
         pane.clear()
         pane.write(_fmt_incident(inc))
+        inv_pane = self._investigation()
+        inv_pane.clear()
+        if not inv:
+            inv_pane.write("no investigation was run for this incident")
+            return
+        self._write_investigation(inv_pane, inv, rc)
 
-    def _render_replay(self, inc, investigations) -> None:
-        self._render_detail(inc)
-        pane = self._investigation()
+    def _write_investigation(self, pane, inv, rc) -> None:
+        pane.write(f"investigation  {inv.get('id')}")
+        pane.write(f"status  {inv.get('status')}   created {_ts(inv.get('created_at'))}")
+        for step in inv.get("steps", []):
+            err = f"  {step.get('error')}" if step.get("error") else ""
+            pane.write(f"  {step['step_type']:<10} {step['status']:<12} attempt={step.get('attempt', 1)}{err}")
+        if rc:
+            pane.write("")
+            pane.write(_fmt_root_cause(rc))
+
+    def _render_replay(self, inc, investigations, rc) -> None:
+        pane = self._detail()
         pane.clear()
+        pane.write(_fmt_incident(inc))
+        inv_pane = self._investigation()
+        inv_pane.clear()
         if not investigations:
-            pane.write("no investigation was run for this incident")
+            inv_pane.write("no investigation was run for this incident")
             return
         inv = investigations[0]
         steps = {s["step_type"]: s for s in inv.get("steps", [])}
@@ -193,45 +257,11 @@ class IncidentOSTUI(App):
             step = steps.get(step_type)
             if not step:
                 continue
-            pane.write(f"{_ts(step.get('completed_at'))}  step {step_type:<10} {step.get('status')}")
-        pane.write(f"{_ts(inv.get('updated_at'))}  investigation {inv.get('status')}")
-        if inv.get("status") == "READY":
-            try:
-                rc = self.api.root_cause(inv["id"])
-            except ApiError:
-                return
-            pane.write("")
-            pane.write(_fmt_root_cause(rc))
-
-    # ---- actions -----------------------------------------------------
-
-    def _poll_investigation(self) -> None:
-        inv_id = self._investigation_id
-        if not inv_id:
-            return
-
-    def _render_replay(self, inc, investigations) -> None:
-        self._render_detail(inc)
-        pane = self._investigation()
-        pane.clear()
-        if not investigations:
-            pane.write("no investigation was run for this incident")
-            return
-        inv = investigations[0]
-        steps = {s["step_type"]: s for s in inv.get("steps", [])}
-        for step_type in _ORDER:
-            step = steps.get(step_type)
-            if not step:
-                continue
-            pane.write(f"{_ts(step.get('completed_at'))}  step {step_type:<10} {step.get('status')}")
-        pane.write(f"{_ts(inv.get('updated_at'))}  investigation {inv.get('status')}")
-        if inv.get("status") == "READY":
-            try:
-                rc = self.api.root_cause(inv["id"])
-            except ApiError:
-                return
-            pane.write("")
-            pane.write(_fmt_root_cause(rc))
+            inv_pane.write(f"{_ts(step.get('completed_at'))}  step {step_type:<10} {step.get('status')}")
+        inv_pane.write(f"{_ts(inv.get('updated_at'))}  investigation {inv.get('status')}")
+        if rc:
+            inv_pane.write("")
+            inv_pane.write(_fmt_root_cause(rc))
 
     # ---- actions -----------------------------------------------------
 
@@ -243,11 +273,14 @@ class IncidentOSTUI(App):
         self._show_detail_for(event.row_key.value)
 
     def on_data_table_row_highlighted(self, event) -> None:
+        if self._suppress_highlight:
+            return
         if event.row_key is not None:
             self._show_detail_for(event.row_key.value)
 
     def action_investigate(self) -> None:
         if not self.selected:
+            self._note("select an incident first (move with arrows / Enter), then press i")
             return
         self._investigation_id = None
         if self._investigation_timer:
@@ -264,44 +297,69 @@ class IncidentOSTUI(App):
         self.run_worker(start, thread=True, group="start_investigation")
 
     def _poll_investigation(self) -> None:
+        self.run_worker(
+            self._fetch_investigation,
+            thread=True,
+            group="poll_investigation",
+            exclusive=True,
+        )
+
+    def _fetch_investigation(self):
         inv_id = self._investigation_id
         if not inv_id:
-            return
+            return None, "no investigation id"
         try:
             inv = self.api.get_investigation(inv_id)
-        except ApiError as exc:
-            self._investigation().write(f"!! {exc}")
-            return
+        except Exception as exc:
+            return None, f"investigation poll failed: {exc}"
+        rc = None
+        if inv.get("status") == "READY":
+            try:
+                rc = self.api.root_cause(inv_id)
+            except Exception:
+                rc = None
+        return inv, rc
+
+    def _render_investigation(self, inv, rc) -> None:
         pane = self._investigation()
         pane.clear()
-        pane.write(f"investigation  {inv.get('id')}")
-        pane.write(f"status  {inv.get('status')}   created {_ts(inv.get('created_at'))}")
-        for step in inv.get("steps", []):
-            err = f"  {step.get('error')}" if step.get("error") else ""
-            pane.write(f"  {step['step_type']:<10} {step['status']:<12} attempt={step.get('attempt', 1)}{err}")
+        if inv is None:
+            pane.write(rc or "investigation poll failed")
+            return
+        self._write_investigation(pane, inv, rc)
         if inv.get("status") in ("READY", "FAILED"):
             if self._investigation_timer:
                 self._investigation_timer.stop()
                 self._investigation_timer = None
-            if inv.get("status") == "READY":
-                try:
-                    rc = self.api.root_cause(inv_id)
-                except ApiError:
-                    return
-                pane.write("")
-                pane.write(_fmt_root_cause(rc))
 
     def action_resolve(self) -> None:
         if not self.selected:
+            self._note("select an incident first (move with arrows / Enter), then press x")
             return
         self.run_worker(self._resolve, thread=True, group="resolve")
 
     def _resolve(self) -> None:
-        return self.api.resolve_incident(self.selected)
+        return self.api.resolve_incident(self.selected)["id"]
 
     def action_replay(self) -> None:
         if self.selected:
             self.run_worker(self._fetch_replay, thread=True, group="replay")
+
+    def action_clear(self) -> None:
+        if not self._clear_arm:
+            self._clear_arm = True
+            self._note("press C again to confirm: delete ALL incidents (investigations too)")
+            self.set_timer(5, self._disarm_clear)
+            return
+        self._clear_arm = False
+        self.run_worker(self._clear_all, thread=True, group="clear")
+
+    def _disarm_clear(self) -> None:
+        self._clear_arm = False
+
+    def _clear_all(self):
+        result = self.api.clear_incidents()
+        return result.get("deleted", 0)
 
     def action_emit_all(self) -> None:
         self.run_worker(partial(self._emit, "all"), thread=True, group="emit")

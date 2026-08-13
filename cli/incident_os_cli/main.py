@@ -157,6 +157,20 @@ def cmd_incidents_resolve(args):
     return 0
 
 
+def cmd_incidents_clear(args):
+    api = _api(args)
+    try:
+        result = api.clear_incidents(service=args.service, status=args.status)
+    except ApiError as exc:
+        print(f"error: {exc}")
+        return 1
+    if args.json:
+        output.dump_json(result)
+        return 0
+    print(f"deleted {result.get('deleted', 0)} incident(s)")
+    return 0
+
+
 def _print_investigation(investigation):
     output.kv(
         "investigation",
@@ -367,6 +381,12 @@ def build_parser():
     p_resolve.add_argument("id", help="incident id")
     p_resolve.set_defaults(func=cmd_incidents_resolve)
     add_json(p_resolve)
+
+    p_clear = p_incidents_sub.add_parser("clear", help="delete incidents (default all)")
+    p_clear.add_argument("--service", help="only delete incidents for this service")
+    p_clear.add_argument("--status", help="only delete incidents with this status (OPEN, ...)")
+    p_clear.set_defaults(func=cmd_incidents_clear)
+    add_json(p_clear)
 
     p_investigation = sub.add_parser("investigation", help="inspect investigations")
     p_investigation_sub = p_investigation.add_subparsers(dest="investigation_command", required=True)
